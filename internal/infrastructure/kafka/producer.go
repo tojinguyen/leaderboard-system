@@ -16,7 +16,7 @@ type KafkaProducer struct {
 }
 
 // NewKafkaProducer khởi tạo Kafka Writer để publish score events
-func NewKafkaProducer(brokers []string, topic string) (domain.ScoreProducer, error) {
+func NewKafkaProducer(brokers []string, topic string) (*KafkaProducer, error) {
 	writer := &kafka.Writer{
 		Addr:         kafka.TCP(brokers...),
 		Topic:        topic,

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"leaderboard-system/internal/domain"
 )
 
 type PostgresRepository struct {
@@ -15,7 +14,7 @@ type PostgresRepository struct {
 }
 
 // NewPostgresRepository khởi tạo kết nối PostgreSQL với cơ chế Retry Exponential Backoff
-func NewPostgresRepository(ctx context.Context, dsn string) (domain.LeaderboardRepository, error) {
+func NewPostgresRepository(ctx context.Context, dsn string) (*PostgresRepository, error) {
 	var pool *pgxpool.Pool
 	var err error
 

@@ -11,13 +11,23 @@ import (
 	"leaderboard-system/internal/domain"
 )
 
+// LeaderboardRepository định nghĩa giao tiếp lưu trữ dữ liệu (Consumer side)
+type LeaderboardRepository interface {
+	UpsertScore(ctx context.Context, userID string, scoreDelta int64) error
+}
+
+// LeaderboardCache định nghĩa giao tiếp ghi cache (Consumer side)
+type LeaderboardCache interface {
+	IncrementScore(ctx context.Context, userID string, scoreDelta int64, timestamp int64) error
+}
+
 type ConsumerService struct {
-	repo  domain.LeaderboardRepository
-	cache domain.LeaderboardCache
+	repo  LeaderboardRepository
+	cache LeaderboardCache
 }
 
 // NewConsumerService khởi tạo Consumer Service chứa business logic của consumers
-func NewConsumerService(repo domain.LeaderboardRepository, cache domain.LeaderboardCache) *ConsumerService {
+func NewConsumerService(repo LeaderboardRepository, cache LeaderboardCache) *ConsumerService {
 	return &ConsumerService{
 		repo:  repo,
 		cache: cache,
@@ -90,7 +100,7 @@ func (s *ConsumerService) HandleRedisConsumption(ctx context.Context, msg kafka.
 
 	// Thực hiện increment Redis score với cơ chế retry vô hạn
 	err := ExecuteWithRetry(ctx, fmt.Sprintf("Redis ZINCRBY User %s", event.UserID), func() error {
-		return s.cache.IncrementScore(ctx, event.UserID, event.ScoreDelta)
+		return s.cache.IncrementScore(ctx, event.UserID, event.ScoreDelta, event.Timestamp)
 	})
 	if err != nil {
 		return err

@@ -1,23 +1,36 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"leaderboard-system/internal/domain"
 	"leaderboard-system/internal/infrastructure/cache"
 )
 
+// ScoreProducer định nghĩa giao tiếp để gửi event (Consumer side)
+type ScoreProducer interface {
+	PublishScoreEvent(ctx context.Context, event domain.ScoreEvent) error
+}
+
+// LeaderboardCache định nghĩa giao tiếp đọc cache (Consumer side)
+type LeaderboardCache interface {
+	GetTopPlayers(ctx context.Context, limit int, mode string) ([]domain.LeaderboardEntry, error)
+	GetUserRank(ctx context.Context, userID string, mode string) (*domain.LeaderboardEntry, error)
+}
+
 type LeaderboardHandler struct {
-	producer domain.ScoreProducer
-	cache    domain.LeaderboardCache
+	producer ScoreProducer
+	cache    LeaderboardCache
 }
 
 // NewLeaderboardHandler khởi tạo handler cho Leaderboard HTTP APIs
-func NewLeaderboardHandler(producer domain.ScoreProducer, cache domain.LeaderboardCache) *LeaderboardHandler {
+func NewLeaderboardHandler(producer ScoreProducer, cache LeaderboardCache) *LeaderboardHandler {
 	return &LeaderboardHandler{
 		producer: producer,
 		cache:    cache,
@@ -26,7 +39,8 @@ func NewLeaderboardHandler(producer domain.ScoreProducer, cache domain.Leaderboa
 
 type AddScoreRequest struct {
 	UserID     string `json:"user_id"`
-	ScoreDelta *int64 `json:"score_delta"` // Pointer giúp kiểm tra xem trường này có được truyền hay không
+	ScoreDelta *int64 `json:"score_delta"`
+	Timestamp  *int64 `json:"timestamp"` // Unix timestamp tùy chọn từ client
 }
 
 // AddScore tiếp nhận thay đổi điểm số của người chơi và gửi lên Kafka
@@ -47,9 +61,15 @@ func (h *LeaderboardHandler) AddScore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	eventTimestamp := time.Now().Unix()
+	if req.Timestamp != nil {
+		eventTimestamp = *req.Timestamp
+	}
+
 	event := domain.ScoreEvent{
 		UserID:     req.UserID,
 		ScoreDelta: *req.ScoreDelta,
+		Timestamp:  eventTimestamp,
 	}
 
 	// Gửi event lên Kafka một cách đồng bộ/bất đồng bộ từ Gateway
@@ -61,7 +81,7 @@ func (h *LeaderboardHandler) AddScore(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
-// GetTopPlayers trả về Top N người chơi toàn cầu
+// GetTopPlayers trả về Top N người chơi toàn cầu dựa trên mode (daily, weekly, monthly, alltime)
 func (h *LeaderboardHandler) GetTopPlayers(w http.ResponseWriter, r *http.Request) {
 	nStr := r.URL.Query().Get("n")
 	n := 100 // Mặc định là 100 người
@@ -71,7 +91,12 @@ func (h *LeaderboardHandler) GetTopPlayers(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	entries, err := h.cache.GetTopPlayers(r.Context(), n)
+	mode := r.URL.Query().Get("mode")
+	if mode == "" {
+		mode = "alltime"
+	}
+
+	entries, err := h.cache.GetTopPlayers(r.Context(), n, mode)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve top players: "+err.Error())
 		return
@@ -80,7 +105,7 @@ func (h *LeaderboardHandler) GetTopPlayers(w http.ResponseWriter, r *http.Reques
 	respondWithJSON(w, http.StatusOK, entries)
 }
 
-// GetUserRank trả về rank (1-indexed) và điểm số hiện tại của user_id cụ thể
+// GetUserRank trả về rank (1-indexed) và điểm số hiện tại của user_id cụ thể dựa trên mode
 func (h *LeaderboardHandler) GetUserRank(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "user_id")
 	if userID == "" {
@@ -88,7 +113,12 @@ func (h *LeaderboardHandler) GetUserRank(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	entry, err := h.cache.GetUserRank(r.Context(), userID)
+	mode := r.URL.Query().Get("mode")
+	if mode == "" {
+		mode = "alltime"
+	}
+
+	entry, err := h.cache.GetUserRank(r.Context(), userID, mode)
 	if err != nil {
 		if errors.Is(err, cache.ErrUserNotFound) {
 			respondWithError(w, http.StatusNotFound, "User not found on the leaderboard")
