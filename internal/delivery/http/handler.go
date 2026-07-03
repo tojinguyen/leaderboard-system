@@ -22,18 +22,21 @@ type ScoreProducer interface {
 type LeaderboardCache interface {
 	GetTopPlayers(ctx context.Context, limit int, mode string) ([]domain.LeaderboardEntry, error)
 	GetUserRank(ctx context.Context, userID string, mode string) (*domain.LeaderboardEntry, error)
+	RebuildCache(ctx context.Context, repo cache.RebuildRepository) error
 }
 
 type LeaderboardHandler struct {
 	producer ScoreProducer
 	cache    LeaderboardCache
+	dbRepo   cache.RebuildRepository
 }
 
 // NewLeaderboardHandler khởi tạo handler cho Leaderboard HTTP APIs
-func NewLeaderboardHandler(producer ScoreProducer, cache LeaderboardCache) *LeaderboardHandler {
+func NewLeaderboardHandler(producer ScoreProducer, cache LeaderboardCache, dbRepo cache.RebuildRepository) *LeaderboardHandler {
 	return &LeaderboardHandler{
 		producer: producer,
 		cache:    cache,
+		dbRepo:   dbRepo,
 	}
 }
 
@@ -139,4 +142,13 @@ func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// RebuildCache kích hoạt quá trình rebuild cache từ Postgres sang Sharded Redis
+func (h *LeaderboardHandler) RebuildCache(w http.ResponseWriter, r *http.Request) {
+	if err := h.cache.RebuildCache(r.Context(), h.dbRepo); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to rebuild cache: "+err.Error())
+		return
+	}
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "rebuild completed successfully"})
 }

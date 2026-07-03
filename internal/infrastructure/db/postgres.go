@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"leaderboard-system/internal/domain"
 )
 
 type PostgresRepository struct {
@@ -67,4 +68,35 @@ func (r *PostgresRepository) Close() error {
 		r.pool.Close()
 	}
 	return nil
+}
+
+// GetUsersBatch lấy một danh sách users xếp thứ tự theo user_id lớn hơn lastUserID (phục vụ phân trang)
+func (r *PostgresRepository) GetUsersBatch(ctx context.Context, lastUserID string, limit int) ([]domain.LeaderboardEntry, error) {
+	query := `
+		SELECT user_id, total_score 
+		FROM leaderboards 
+		WHERE user_id > $1 
+		ORDER BY user_id ASC 
+		LIMIT $2
+	`
+	rows, err := r.pool.Query(ctx, query, lastUserID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query users batch: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []domain.LeaderboardEntry
+	for rows.Next() {
+		var entry domain.LeaderboardEntry
+		if err := rows.Scan(&entry.UserID, &entry.Score); err != nil {
+			return nil, fmt.Errorf("failed to scan user batch row: %w", err)
+		}
+		entries = append(entries, entry)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error in GetUsersBatch: %w", err)
+	}
+
+	return entries, nil
 }

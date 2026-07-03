@@ -40,15 +40,15 @@ func main() {
 		}
 	}()
 
-	// 4. Khởi tạo Redis cache (có retry)
-	redisCache, err := cache.NewRedisCache(ctx, cfg.RedisAddr, cfg.RedisPass, cfg.RedisDB)
+	// 4. Khởi tạo Sharded Redis cache (có retry)
+	redisCache, err := cache.NewShardedRedisCache(ctx, cfg.RedisShards)
 	if err != nil {
-		log.Fatalf("Fatal: failed to connect to Redis: %v", err)
+		log.Fatalf("Fatal: failed to initialize Sharded Redis: %v", err)
 	}
 	defer func() {
-		log.Println("Gracefully closing Redis client...")
+		log.Println("Gracefully closing Redis shards...")
 		if err := redisCache.Close(); err != nil {
-			log.Printf("Error closing Redis: %v", err)
+			log.Printf("Error closing Redis shards: %v", err)
 		}
 	}()
 
@@ -85,7 +85,7 @@ func main() {
 	}()
 
 	// 8. Khởi tạo HTTP Gateway Server
-	httpHandler := deliveryHTTP.NewLeaderboardHandler(producer, redisCache)
+	httpHandler := deliveryHTTP.NewLeaderboardHandler(producer, redisCache, repo)
 	router := deliveryHTTP.SetupRouter(httpHandler)
 
 	server := &http.Server{

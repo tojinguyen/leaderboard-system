@@ -22,6 +22,7 @@ func SetupRouter(handler *LeaderboardHandler) http.Handler {
 		r.Post("/scores", handler.AddScore)
 		r.Get("/leaderboard/top", handler.GetTopPlayers)
 		r.Get("/leaderboard/user/{user_id}", handler.GetUserRank)
+		r.Post("/admin/leaderboard/rebuild", handler.RebuildCache)
 	})
 
 	return r
